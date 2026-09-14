@@ -1,5 +1,5 @@
 @echo off
 set USE_OLLAMA=true
 set OLLAMA_MODEL=qwen3:4b
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn main_v2:app --host 0.0.0.0 --port 8000 --reload
 pause
