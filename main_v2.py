@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+from pathlib import Path
+import shutil
 import traceback
 
 import main
@@ -12,8 +14,6 @@ def _safe_enrich_event(event_id: str, payload: dict) -> None:
     gate = main.technical_gate(payload)
     try:
         news = news_engine.free_news_context(payload)
-        # During freshness validation use deterministic selection only.
-        # This guarantees source/time eligibility before Ollama is re-enabled.
         result = news_engine.deterministic_analysis(main, payload, gate, news)
         result = news_engine.post_validate(main, result, payload, gate, news)
         result["cost"] = "$0"
@@ -63,3 +63,37 @@ def _safe_enrich_event(event_id: str, payload: dict) -> None:
 
 main.enrich_event = _safe_enrich_event
 app = main.app
+
+
+@app.post("/admin/archive-alerts")
+def archive_alerts() -> dict:
+    """Archive the current alert log and clear the live dashboard feed."""
+    archive_dir = Path(main.APP_DIR) / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive_path = archive_dir / f"alerts-{stamp}.jsonl"
+
+    with main._lock:
+        count = len(main._alerts)
+        if main.ALERT_LOG.exists() and main.ALERT_LOG.stat().st_size > 0:
+            shutil.copy2(main.ALERT_LOG, archive_path)
+        else:
+            archive_path.write_text("", encoding="utf-8")
+
+        main._alerts.clear()
+        main.ALERT_LOG.write_text("", encoding="utf-8")
+
+    return {
+        "ok": True,
+        "archived_count": count,
+        "archive_file": str(archive_path),
+        "live_alerts": 0,
+    }
+
+
+@app.get("/admin/archives")
+def list_archives() -> dict:
+    archive_dir = Path(main.APP_DIR) / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    files = sorted((p.name for p in archive_dir.glob("alerts-*.jsonl")), reverse=True)
+    return {"archives": files[:50]}
